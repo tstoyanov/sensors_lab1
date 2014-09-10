@@ -148,36 +148,35 @@ class ArduinoComm {
         boost::thread status_thread_;
 
 	//this function sets up the serial communication interface
-	int set_interface_attribs (int fd, int speed)
+	int set_interface_attribs (int fd, int speed, bool canon=true)
 	{
-   	   struct termios tty;
-           memset (&tty, 0, sizeof tty);
-           if (tcgetattr (fd, &tty) != 0)
-           {
-               printf("error %d from tcgetattr", errno);
-               return -1;
-           }
+		struct termios tty;
+		memset (&tty, 0, sizeof tty);
+		if (tcgetattr (fd, &tty) != 0)
+		{
+			printf("error %d from tcgetattr", errno);
+			return -1;
+		}
+		//set baud rate
+		cfsetospeed (&tty, speed);
+		cfsetispeed (&tty, speed);
 
-	   //set baud rate
-           cfsetospeed (&tty, speed);
-           cfsetispeed (&tty, speed);
+	        //8N1
+		tty.c_cflag &= ~PARENB;
+		tty.c_cflag &= ~CSTOPB;
+		tty.c_cflag &= ~CSIZE;
+		tty.c_cflag |= CS8;
 
-           //8N1
-           tty.c_cflag &= ~PARENB;
-           tty.c_cflag &= ~CSTOPB;
-           tty.c_cflag &= ~CSIZE;
-           tty.c_cflag |= CS8;
-	   
-	   //set cannonical
-           tty.c_lflag |= ICANON;
-           tty.c_oflag &= ~OPOST;
-           if (tcsetattr (fd, TCSANOW, &tty) != 0)
-           {
-               printf ("error %d from tcsetattr", errno);
-               return -1;
-           }
-           return 0;
-        }
+		//set cannonical
+		tty.c_lflag |= (canon) ? ICANON : ~ICANON;
+		tty.c_oflag &= ~OPOST;
+		if (tcsetattr (fd, TCSANOW, &tty) != 0)
+		{
+			printf ("error %d from tcsetattr", errno);
+			return -1;
+		}
+		return 0;
+	}
 
 	//this function reads one line of input from the file descriptor fd, terminated by \r\n
 	//returns the most recent full line read in the buffer
