@@ -7,7 +7,7 @@ project(arduino_pkg)
 find_package(catkin REQUIRED COMPONENTS std_srvs std_msgs dynamic_reconfigure message_generation roscpp rospy)
 
 ## System dependencies are found with CMake's conventions
-find_package(Boost REQUIRED COMPONENTS thread)
+find_package(Boost REQUIRED COMPONENTS thread system)
 
 ################################################
 ## Declare ROS messages, services and actions ##
