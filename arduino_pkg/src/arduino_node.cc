@@ -70,8 +70,15 @@ ArduinoNode::ArduinoNode():arduino_comm(NULL)
   cb = boost::bind(&ArduinoNode::configCallback, this, _1, _2);
   dr_srv.setCallback(cb);
   
-  nh_.param<std::string>("port", port_,"/dev/ttyACM0");
-  arduino_comm = new ArduinoComm(port_);
+  int AMCX = 0;
+  while(!isConnected && AMCX < 3)
+  {
+    nh_.param<std::string>("port", port_,"/dev/ttyACM"+ boost::lexical_cast<std::string>(AMCX));
+    arduino_comm = new ArduinoComm(port_);
+    std::cerr<<std::endl<<"connecting to arduino board at "<<port_<<std::endl;
+    isConnected = arduino_comm->connect();
+    ++AMCX;
+  }  
   
   //This is how you advertise a service
   request_on_ = nh_.advertiseService("motor_on", &ArduinoNode::request_motor_on, this);
@@ -83,8 +90,6 @@ ArduinoNode::ArduinoNode():arduino_comm(NULL)
   heartbeat_status_ = nh_.createTimer(ros::Duration(0.01), &ArduinoNode::publishStatus, this);
 
   encoder_pos = 0, motor_curr = 0, setpoint = 0, kp = 0, ki = 0, kd = 0;
-  std::cerr<<"connecting to arduino board at "<<port_<<std::endl;
-  isConnected = arduino_comm->connect();
 }
 
 ArduinoNode::~ArduinoNode()
