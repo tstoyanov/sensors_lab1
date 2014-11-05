@@ -1,3 +1,6 @@
+#ifndef _ARDUINO_COMM_H
+#define _ARDUINO_COMM_H
+
 #include <cstdio>
 #include <cstring>
 #include <errno.h>
@@ -11,11 +14,15 @@
 #include <boost/thread/mutex.hpp>
 #include <boost/thread/thread.hpp>
 #include <vector>
-
+/**
+  This class implements the basic communication with the arduino board, over the serial port.
+  The class provides methods to connect/disconnect to the board, as well as asynchronous read/write
+  operations and basic implementation of the protocol defined in the lab instructions.
+  */
 class ArduinoComm {
 
     public:
-	//Constructor
+	///Constructor @param port: the string to the arduino port, e.g. "/dev/ttyUSB0"
 	ArduinoComm(std::string port) {
 	    port_ = port;
 	    arduino_fd = -1;
@@ -23,7 +30,7 @@ class ArduinoComm {
             doUpdateStatus = true;
 	}
 
-	//connect to Arduino
+	///connect to Arduino
 	bool connect() {
 	    if(port_ == "") {
 		return false;
@@ -44,12 +51,13 @@ class ArduinoComm {
 	    isConnected_ = true;
 	    std::cout<<"Connected!\n";
 
-	    //start STATUS thread
+	    //start STATUS thread (asynchronous reads)
             status_thread_ = boost::thread(boost::bind(&ArduinoComm::updateStatus,this));
 
 	    return true;
 	}
-
+	
+	///close the communication to the arduino board
         bool closeComm() {
 	    //signal update thread to quit
             doUpdateStatus = false;
@@ -59,14 +67,17 @@ class ArduinoComm {
             if(isConnected_ && arduino_fd >= 0) {
 		//close file descriptor
                 close(arduino_fd);
+		isConnected_ = false;
                 return true;
             }   
             return false;
 
         }
 
+	///is there an open connection?
 	bool isConnected() { return isConnected_; }
 	
+	///this function returns the last status read by the status thread
 	bool getStatus(float &encoderPos, float &currentMA, float &setPoint, 
 		float &Kp, float &Ki, float &Kd) {
 	    
@@ -78,6 +89,7 @@ class ArduinoComm {
             return true;
 	}
 	
+	///this function sends a target encoder position to the arduino board
         bool setTargetPos (float target, float sec) {
             if(!isConnected_) return false;
 
@@ -113,41 +125,46 @@ class ArduinoComm {
             return (wrote == msg_size);
         }
 
+	///this function sends a new set of target PID parameters to the arduino board
 	bool setPIDParams (float kp, float ki, float kd) {
             if(!isConnected_) return false;
 	    //TODO: here send message with PID parameters
 	}
 	
+	///this function signals to the arduino board to switch the motors off
 	bool setOff () {
             if(!isConnected_) return false;
 	    //TODO: here send message to switch on brake
 	}	    
 	
+	///this function signals to the arduino to switch the motors on
 	bool setOn () {
             if(!isConnected_) return false;
 	    //TODO: here send message to switch off brake
 	}	    
+
+	///destructor, exit cleanly
         ~ArduinoComm() {
             this->closeComm();
         }
 
     private:
-	//buffer for message reading
+	///buffer for message reading
 	char buf[1000];
-	//port to connect to the arduino
+	///port to connect to the arduino
         std::string port_;
-	//arduino file descriptor
+	///arduino file descriptor
 	int arduino_fd;
-	//booleans for connection and update thread
+	///booleans for connection and update thread
 	bool isConnected_, doUpdateStatus;
-	//state variables
+	///state variables
 	float encoderPos_, currentMA_, setPoint_, Kp_, Ki_, Kd_;
-	//mutexes to protect members for asynchronous read
+	///mutexes to protect members for asynchronous read
 	boost::mutex arduino_mutex_, data_mutex_;
-	//thread for reading arduino status
+	///thread for reading arduino status
         boost::thread status_thread_;
 
-	//this function sets up the serial communication interface
+	///this function sets up the serial communication interface
 	int set_interface_attribs (int fd, int speed, bool canon=true)
 	{
 		struct termios tty;
@@ -178,8 +195,8 @@ class ArduinoComm {
 		return 0;
 	}
 
-	//this function reads one line of input from the file descriptor fd, terminated by \r\n
-	//returns the most recent full line read in the buffer
+	/**this function reads one line of input from the file descriptor fd, terminated by \r\n
+	   returns the most recent full line read in the buffer */
         char* readInput(int fd) {
 
 	    //zero buffer
@@ -227,8 +244,8 @@ class ArduinoComm {
             return NULL;
         }
 
-	//this is the function executed by the status update thread
-	//it reads lines from the descriptor and updates status variables
+	/*this is the function executed by the status update thread.
+	  it reads lines from the descriptor and updates status variables */
         void updateStatus() {
             
 	    //storage for the parsed integer values
@@ -238,7 +255,7 @@ class ArduinoComm {
             while(doUpdateStatus) {
 		//read a line of input
                 char *lineptr = readInput(arduino_fd);
-		//TODO: here, tokenize the line, based on your delimiters
+		//TODO: here, tokenize the line, based on your delimiters and store the integer values read
                 data_mutex_.lock();
                 //TODO: here, update state variables with the tokens you read
 		data_mutex_.unlock();
@@ -251,3 +268,5 @@ class ArduinoComm {
             }
         }
 };
+
+#endif

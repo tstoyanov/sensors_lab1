@@ -13,43 +13,62 @@
 // Auto-generated from cfg/ directory.
 #include <arduino_pkg/arduino_nodeConfig.h>
 
+/**
+  * This class implements a ros node that provides services and status updates for the arduino motor controller.
+  */
 class ArduinoNode
 {
 public:
+  ///default constructor  
   ArduinoNode();
+  ///destructor
   virtual ~ArduinoNode();
 
 private:
+  ///a node handle to the local (home) node space
   ros::NodeHandle nh_;
 
+  ///This timer ensures we publish status messages at a fixed frequency
   ros::Timer heartbeat_status_;
+  ///mutex to protect the arduino communications
   boost::mutex arduino_mutex_;
 
+  ///the port to connect to
   std::string port_;
+  ///a communication object
   ArduinoComm *arduino_comm;
 
+  ///publisher for status messages
   ros::Publisher status_publisher_;
   
+  ///provides services for setting a new desired position
   ros::ServiceServer request_pos_;
+  ///provides a service to switch on the motors
   ros::ServiceServer request_on_;
+  ///provides a service to switch off the motors
   ros::ServiceServer request_off_;
 
-  //reconfigure stuff
+  ///procides a server connection to dynamic reconfigure
   dynamic_reconfigure::Server<arduino_pkg::arduino_nodeConfig> dr_srv;
   dynamic_reconfigure::Server<arduino_pkg::arduino_nodeConfig>::CallbackType cb;
 
+  ///callbacks for the services
   bool request_motor_on(std_srvs::Empty::Request  &req,
              std_srvs::Empty::Response &res );
   bool request_motor_off(std_srvs::Empty::Request  &req,
              std_srvs::Empty::Response &res );
   bool request_motor_pos(arduino_pkg::SetPosition::Request  &req,
              arduino_pkg::SetPosition::Response &res );
-  
+
+  ///callback for the ros timer, publishes the current status
   void publishStatus(const ros::TimerEvent& event);
 
+  ///storage for status variables
   float encoder_pos, motor_curr, setpoint, kp, ki, kd;
+  ///is the connection active?
   bool isConnected;
 
+  ///callback for the dynamic reconfigure events
   void configCallback(arduino_pkg::arduino_nodeConfig &config, uint32_t level)
   {
       if(arduino_comm == NULL) return;

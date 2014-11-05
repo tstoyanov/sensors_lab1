@@ -1,4 +1,5 @@
 //======================= Struct Definitions ======================
+//this struct holds the state values of a desired control point
 struct ControlStates
 {
   float r_; //setpoint value at current iteration
@@ -17,6 +18,7 @@ struct ControlStates
   ControlStates(float r, float rf, float ri, float e, float de, float ti, float T, int u, bool active) : r_(r), rf_(rf), ri_(ri), e_(e), de_(de), ti_(ti), T_(T), u_(u), active_(active) {};
 };
 
+//this struct holds the variables for a PID controller
 struct PIDParameters {
   float Kp_;
   float Kd_;
@@ -28,6 +30,7 @@ struct PIDParameters {
   PIDParameters(float Kp, float Ki, float Kd, float u_max, float u_min, float I) : Kp_(Kp), Kd_(Kd), Ki_(Ki), u_max_(u_max), u_min_(u_min), I_(I) {};
 };
 
+//this struct holds the pin numbers for the motor shield
 struct MotorShieldPins {
   int DIR_; //direction pin
   int PWM_; //pwm pin
@@ -37,6 +40,7 @@ struct MotorShieldPins {
   MotorShieldPins(int DIR, int BRK, int PWM_pin, int CUR) : DIR_(DIR), BRK_(BRK), PWM_(PWM_pin), CUR_(CUR) {};
 };
 
+//this struct holds the pin for the encoder and the current number of ticks
 struct EncoderStates
 {
   int ENC_; //pin for the encoder
@@ -46,22 +50,34 @@ struct EncoderStates
 };
 
 /////////////////Function Declarations//////////////////
+//function to execute upon change of the encoder pin
 void readEncoder();
+//this function writes a desired control value to the motor
 void actuate(float control, MotorShieldPins *mps);
+//this function reads the messages on the serial interface and parses commands
 void processMessages();
+//helper function to convert 2 char bytes into a short int
 short getShort(char *buf, short pos);
+//this function publishes the current status of the control board
 void publishStatus();
+//this function performs position control using the PID and minimumJerk
 void positionControl(ControlStates* c_s, EncoderStates* e_s, MotorShieldPins* m_pins, PIDParameters* pid_p);
+//this function computes the next setpoint to obtain a mnimum jerk trajectory
 float minimumJerk(float t0, float t, float T, float q0, float qf);
+//this function computes controls with a PID
 float pid(float e, float de, PIDParameters* p);
 
 //////////////Global Vars////////////
-const float pwm_resolution = 4095; //PWM resoluion: 12 bit, i.e., 0 - 4095
+//PWM resoluion: 12 bit, i.e., 0 - 4095
+const float pwm_resolution = 4095;
+//storage for timers
 int t_new, t_old, t_old_comm;
-int dT = 1000; //sampling time
+//sampling time in microseconds
+int dT = 1000;
+//storage of the electric current through the motors
 float current;
 
-//TODO: instantiate structs to the correct PIN values
+//TODO: instantiate these structs to the correct PIN values
 //MotorShieldPins *motor1 = new MotorShieldPins(DIR, BRK, PWM, CUR);
 //ControlStates *mc1 = new ControlStates(0, 0, 0, 0, 0, 0, 0, 0, false);
 //PIDParameters *pid_mc1 = new PIDParameters(KP, KI, KD, pwm_resolution, -pwm_resolution, 0);
@@ -194,6 +210,7 @@ float pid(float e, float de, PIDParameters* p)
 void loop() {
   processMessages();
   //TODO:
+  // -update timers
   // -check if sampling period has passed
   // -read in current sensor
   // -if mc1 is active, calculate position control and actuate
