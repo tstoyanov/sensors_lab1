@@ -1,3 +1,16 @@
+//TODO: change this varriable to 1 once you are ready to compile with rosserial_arduino support
+#define ROS_SUPPORT 0
+
+#if ROS_SUPPORT
+#define USE_USBCON
+#include <ros.h>
+#include <arduino_pkg/MotorState.h>
+#include <arduino_pkg/SetPosition.h>
+#include <arduino_pkg/SetPID.h>
+#include <arduino_pkg/SetVelocity.h>
+#include <std_srvs/Empty.h>
+#endif
+
 //======================= Struct Definitions ======================
 //this struct holds the state values of a desired control point
 struct ControlStates
@@ -44,9 +57,12 @@ struct MotorShieldPins {
 struct EncoderStates
 {
   int ENC_; //pin for the encoder
-  int p_;
+  int p_;   //current encoder pulses
+  float dp_;//time-derivative of the encoder pulses
 
-  EncoderStates(int PIN, int pos) : ENC_(PIN), p_(pos) {};
+  EncoderStates(int PIN, int pos) : ENC_(PIN), p_(pos) {
+    dp_ = 0;
+  };
 };
 
 /////////////////Function Declarations//////////////////
@@ -54,26 +70,51 @@ struct EncoderStates
 void readEncoder();
 //this function writes a desired control value to the motor
 void actuate(float control, MotorShieldPins *mps);
-//this function reads the messages on the serial interface and parses commands
-void processMessages();
-//helper function to convert 2 char bytes into a short int
-short getShort(char *buf, short pos);
-//this function publishes the current status of the control board
-void publishStatus();
 //this function performs position control using the PID and minimumJerk
 void positionControl(ControlStates* c_s, EncoderStates* e_s, MotorShieldPins* m_pins, PIDParameters* pid_p);
+//this function performs velocity control using the PID and minimumJerk
+void velocityControl(ControlStates* c_s, EncoderStates* e_s, MotorShieldPins* m_pins, PIDParameters* pid_p);
 //this function computes the next setpoint to obtain a mnimum jerk trajectory
 float minimumJerk(float t0, float t, float T, float q0, float qf);
 //this function computes controls with a PID
 float pid(float e, float de, PIDParameters* p);
+//this function should update the motor state variable from the current measured values
+void updateState();
+
+#if ROS_SUPPORT
+/////////////////ROS Callbacks//////////////////////////
+//callback function for setting a new position
+void setPosCallback(const arduino_pkg::SetPosition::Request &req, arduino_pkg::SetPosition::Response &res);
+//callback function for setting new PID parameters
+void setPIDCallback(const arduino_pkg::SetPID::Request &req, arduino_pkg::SetPID::Response &res);
+//callback function for setting a new velocities
+void setVelCallback(const arduino_pkg::SetVelocity::Request &req, arduino_pkg::SetVelocity::Response &res);
+//callback function for switching off the motor brake
+void setOn(const std_srvs::Empty::Request &req, std_srvs::Empty::Response &res);
+//callback function for switching on the motor brake
+void setOff(const std_srvs::Empty::Request &req, std_srvs::Empty::Response &res);
+///////////////////////////////////////////////////////////////////////////////////
+
+///////////////////ROS global variables/////////////////////////
+ros::NodeHandle nh;
+arduino_pkg::MotorState state;
+ros::Publisher state_publisher("/motor_state", &state);
+ros::ServiceServer<arduino_pkg::SetPosition::Request, arduino_pkg::SetPosition::Response> pos_server("set_pos", &setPosCallback);
+ros::ServiceServer<arduino_pkg::SetVelocity::Request, arduino_pkg::SetVelocity::Response> vel_server("set_vel", &setVelCallback);
+ros::ServiceServer<arduino_pkg::SetPID::Request, arduino_pkg::SetPID::Response> pid_server("set_pid", &setPIDCallback);
+ros::ServiceServer<std_srvs::Empty::Request, std_srvs::Empty::Response> on_server("set_on", &setOn);
+ros::ServiceServer<std_srvs::Empty::Request, std_srvs::Empty::Response> off_server("set_off", &setOff);
+///////////////////////////////////////////////////////////////////////////////////////////////
+#endif
 
 //////////////Global Vars////////////
 //PWM resoluion: 12 bit, i.e., 0 - 4095
 const float pwm_resolution = 4095;
 //storage for timers
-int t_new, t_old, t_old_comm;
+int t_new, t_old, t_old_serial;
 //sampling time in microseconds
 int dT = 1000;
+int dT_serial = 50000;
 //storage of the electric current through the motors
 float current;
 
@@ -86,17 +127,33 @@ float current;
 
 void setup() {
 
+  t_old = micros();
+  t_old_serial = micros();
+
   //TODO:
-  // -setup serial port
+  // -setup serial port for first task. Remove once you start using rosserial_arduino!
   // -set the resolution of the analogWrite(...) function to 12 bit, i.e., between 0 - 4095
   // -set the resolution of the analogRead(...) function to 12 bit, i.e., between 0 - 4095
-  // -initialize timers
   // -setup pins for motor shield
   // -write initial values, switch on break
   // -setup encoder pin
-  // -turn on pullup resistor
+  // -turn on pullup resistor for encoder
   // -add interrupt and connect it to readEncoder function
   // -write default low value to PWM
+
+  //Setup ROS related variables
+
+#if ROS_SUPPORT
+  ////// ROS initializations////
+  nh.initNode();
+  nh.advertise(state_publisher);
+  nh.advertiseService(pos_server);
+  nh.advertiseService(vel_server);
+  nh.advertiseService(pid_server);
+  nh.advertiseService(on_server);
+  nh.advertiseService(off_server);
+  ///////////////////////////////
+#endif
 }
 
 void readEncoder() {
@@ -107,77 +164,6 @@ void actuate(float control, MotorShieldPins *mps) {
   //TODO: check motor direction, clamp control value inside pwm_resolution and write pwm
 }
 
-//--------------------------------------------------------------------------
-void processMessages() {
-
-  short target_val = 0;
-
-  if (Serial.available()) {
-    delay(10);
-    char code[100];
-    short i = 0;
-    short j = 0;
-    while (Serial.available() && i < 100) {
-      code[i++] = Serial.read();
-    }
-
-    /* * * * * * * communication protocol * * * * * * * *
-     * POS val[short] dt[short]                 : set drive to position (float)val and time period to achieve target is (float)dt/1000 [Sec]
-     * SET p[short] i[short] d[short]           : set pid parameters to (float)param/10.
-     * OFF                                      : disable motor
-     * ON                                       : enable all motors
-     * * * * * * * * * * * * * * * * * * * * * * * * * */
-
-    while (j < i) {
-      if (code[j + 0] == 'P' && code[j + 1] == 'O' && code[j + 2] == 'S') {
-        //TODO: position mode. Get message payload and set corresponding controler targets
-        j = j + 7; //continue reading from there (3 bytes for POS + 2 bytes val + 2 bytes T
-        continue;
-      }
-
-      if (code[j + 0] == 'S' && code[j + 1] == 'E' && code[j + 2] == 'T') {
-        //TODO: set mode. Read Kp, Ki, Kd and set them
-        j = j + 9; //continue reading from there. (3 bytes for SET + 3x2 bytes for each param
-        continue;
-      }
-
-      if (code[j] == 'O' && code[j + 1] == 'F' && code[j + 2] == 'F') {
-        //TODO: enable Break
-        j = j + 3;
-        continue;
-      }
-      if (code[j] == 'O' && code[j + 1] == 'N') {
-        //TODO: disable Break
-        j = j + 2;
-        continue;
-      }
-      return; //we couldn't parse anything meaningful
-    }
-  }
-}
-
-short getShort(char *buf, short pos) {
-  byte b1, b2;
-  short val;
-  b1 = buf[pos];
-  b2 = buf[pos + 1];
-  val = b2;
-  val = val << 8;
-  val = val | b1;
-  return val;
-}
-
-//--------------------------------------------------------------------------
-void publishStatus() {
-  //TODO: print comma separated values
-  //encoder position
-  //current sensor value
-  //current set point
-  //Kp
-  //Ki
-  //Kd
-  //TODO: print termination character: Serial.print("\r\n");
-}
 //--------------------------------------------------------------------------
 void positionControl(ControlStates* c_s, EncoderStates* e_s, MotorShieldPins* m_pins, PIDParameters* pid_p)
 {
@@ -190,6 +176,17 @@ void positionControl(ControlStates* c_s, EncoderStates* e_s, MotorShieldPins* m_
   // -compute control using pid()
 }
 //--------------------------------------------------------------------------
+void velocityControl(ControlStates* c_s, EncoderStates* e_s, MotorShieldPins* m_pins, PIDParameters* pid_p)
+{
+  //TODO:
+  // -update the setpoint using minimum Jerk
+  // -calculate velocity error
+  // -calculate derivative of the velocity error
+  // -update the control states for the next iteration
+
+  // -compute control using pid()
+}
+//--------------------------------------------------------------------------
 float minimumJerk(float t0, float t, float T, float q0, float qf)
 {
   //TODO: calculate minimumJerk set point
@@ -197,22 +194,65 @@ float minimumJerk(float t0, float t, float T, float q0, float qf)
 //--------------------------------------------------------------------------
 float pid(float e, float de, PIDParameters* p)
 {
-  //TODO: 
+  //TODO:
   // -update the integral term
   // -compute the control value
   // -clamp the control value and if necessary back-calculate the integral term (to avoid windup)
-  // -return control value  
+  // -return control value
 }
+//--------------------------------------------------------------------------
+void updateState() {
+
+}
+
+#if ROS_SUPPORT
+//////////////////////ROS Services ////////////////////////////////////
+void setPosCallback(const arduino_pkg::SetPosition::Request &req, arduino_pkg::SetPosition::Response &res) {
+
+}
+
+void setPIDCallback(const arduino_pkg::SetPID::Request &req, arduino_pkg::SetPID::Response &res) {
+
+}
+
+void setVelCallback(const arduino_pkg::SetVelocity::Request &req, arduino_pkg::SetVelocity::Response &res) {
+
+}
+
+void setOn(const std_srvs::Empty::Request &req, std_srvs::Empty::Response &res) {
+
+}
+
+void setOff(const std_srvs::Empty::Request &req, std_srvs::Empty::Response &res) {
+
+}
+#endif
 
 ////////////////////////////////////////////////////////////////
 ///////////////////////// MAIN LOOP ////////////////////////////
 ////////////////////////////////////////////////////////////////
 void loop() {
-  processMessages();
+#if ROS_SUPPORT
+  //spin and check if we should publish
+  t_new = micros();
+  nh.spinOnce();
+  if (abs(t_new - t_old_serial) > dT_serial) {
+    updateState();
+    state_publisher.publish(&state);
+    t_old_serial = t_new;
+  }
+#endif
+
+  //add the ROS overhead to the time since last loop
+  t_new = micros();
+  //Do nothing if the sampling period didn't pass yet
+  if (abs(t_new - t_old) < dT)
+    return;
+  t_old = t_new;
+
   //TODO:
-  // -update timers
-  // -check if sampling period has passed
   // -read in current sensor
   // -if mc1 is active, calculate position control and actuate
-  // -if communication time has passed, publish status
+  // -if in velocity control mode, calculate with velocity control and actuate
+
 }

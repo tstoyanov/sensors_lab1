@@ -43,6 +43,8 @@ add_message_files(
 add_service_files(
   FILES
   SetPosition.srv
+  SetVelocity.srv
+  SetPID.srv
 )
 
 ## Generate actions in the 'action' folder
@@ -89,7 +91,7 @@ include_directories(${Boost_INCLUDE_DIRS})
 
 ## Declare a cpp executable
 add_executable(arduino_node src/arduino_node.cc)
-add_executable(arduino_simple src/arduino_simple.cc)
+#add_executable(arduino_simple src/arduino_simple.cc)
 
 ## Add cmake target dependencies of the executable/library
 ## as an example, message headers may need to be generated before nodes
@@ -97,7 +99,7 @@ add_executable(arduino_simple src/arduino_simple.cc)
 add_dependencies(arduino_node ${${PROJECT_NAME}_EXPORTED_TARGETS})
 
 target_link_libraries(arduino_node ${Boost_LIBRARIES} ${catkin_LIBRARIES})
-target_link_libraries(arduino_simple ${Boost_LIBRARIES})
+#target_link_libraries(arduino_simple ${Boost_LIBRARIES})
 
 #############
 ## Install ##
